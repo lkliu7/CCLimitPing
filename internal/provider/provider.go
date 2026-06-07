@@ -33,6 +33,13 @@ type Provider interface {
 	Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error)
 }
 
+// ActiveTaskDetector is optionally implemented by providers that can tell
+// whether a user-owned local task is already running and likely to start the
+// next window itself.
+type ActiveTaskDetector interface {
+	ActiveTask(ctx context.Context) (description string, active bool, err error)
+}
+
 // TriggerResult reports what a Trigger did, including the token usage the ping
 // consumed (parsed from the CLI's machine-readable output). CostUSD is 0 when
 // the provider doesn't report a cost (e.g. Codex).

@@ -69,6 +69,11 @@ Two cleanly separated jobs:
 | **Trigger** a new window | the official CLI (interactive Claude Code / `codex exec`), or a minimal API call (GLM) | a tiny slice of quota (this is the point) |
 | **Read** usage & reset times | zero-quota usage endpoints (the same ones CodexBar / community plugins use) | none — never starts a window |
 
+When `watch` sees a 5h window has reset, it first checks for an already-running
+Claude/Codex CLI task. If one is running, `limitping` waits and re-reads usage
+instead of sending its own ping, because that task's next model request will
+start the new window naturally.
+
 - **Claude**: reads `GET https://api.anthropic.com/api/oauth/usage` using the
   OAuth token from the macOS Keychain (`Claude Code-credentials`) or
   `~/.claude/.credentials.json`. Triggering uses a TTY-backed interactive

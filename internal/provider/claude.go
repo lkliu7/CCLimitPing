@@ -43,6 +43,12 @@ func NewClaude(cfg config.ProviderConfig) *Claude {
 
 func (c *Claude) Name() string { return "claude" }
 
+func (c *Claude) ActiveTask(ctx context.Context) (string, bool, error) {
+	return activeCLIProcess(ctx,
+		[]string{"claude"},
+		[]string{"claude-code", "@anthropic-ai/claude"})
+}
+
 type claudeWindow struct {
 	Utilization float64 `json:"utilization"`
 	ResetsAt    string  `json:"resets_at"`

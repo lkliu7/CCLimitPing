@@ -30,6 +30,12 @@ func NewCodex(cfg config.ProviderConfig) *Codex {
 
 func (c *Codex) Name() string { return "codex" }
 
+func (c *Codex) ActiveTask(ctx context.Context) (string, bool, error) {
+	return activeCLIProcess(ctx,
+		[]string{"codex"},
+		[]string{"@openai/codex"})
+}
+
 type codexWindow struct {
 	UsedPercent        float64 `json:"used_percent"`
 	LimitWindowSeconds int     `json:"limit_window_seconds"`

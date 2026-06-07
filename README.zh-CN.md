@@ -64,6 +64,10 @@ limitping watch
 | **触发**新窗口 | 官方 CLI(交互式 Claude Code / `codex exec`),或一次最小 API 调用(GLM) | 消耗一点额度(这正是功能本身) |
 | **读取**用量与重置时刻 | 零消耗用量端点(和 CodexBar / 社区插件用的是同一批) | 不消耗,也绝不会起算窗口 |
 
+当 `watch` 发现 5h 窗口已经重置时,会先检查是否已有 Claude/Codex CLI 任务正在运行。
+如果有,`limitping` 会等待并重新读取用量,而不是自己发 ping,因为这个任务的下一次模型
+请求会自然起算新窗口。
+
 - **Claude**:用 macOS 钥匙串(`Claude Code-credentials`)或 `~/.claude/.credentials.json`
   里的 OAuth token,读 `GET https://api.anthropic.com/api/oauth/usage`。触发使用带
   TTY 的交互式 `claude "<prompt>"` 会话,因此在 headless print 命令改走 Agent

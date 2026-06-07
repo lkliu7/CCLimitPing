@@ -9,6 +9,11 @@ through GitHub Actions and GoReleaser.
 
 - Nothing yet.
 
+## v0.2.1
+
+- `watch` now defers automatic pings while a Claude/Codex CLI task is already
+  running, letting that task naturally start the next 5h window.
+
 ## v0.2.0
 
 - Switched Claude triggering to the interactive Claude Code CLI so subscription
