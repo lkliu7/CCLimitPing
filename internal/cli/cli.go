@@ -17,21 +17,98 @@ var Version = "0.2.0"
 
 // Execute runs the root command.
 func Execute() error {
+	return newRootCmd().Execute()
+}
+
+func newRootCmd() *cobra.Command {
+	text := localizedText()
 	root := &cobra.Command{
 		Use:           "limitping",
-		Short:         "Keep Claude Code / Codex rate-limit windows back-to-back",
-		Long:          "limitping pings your AI coding provider the moment its 5h rate-limit window resets, so the next window starts immediately and stays aligned. Usage is read via zero-quota endpoints; pings go through the official CLIs.",
+		Short:         text.rootShort,
+		Long:          text.rootLong,
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	if text.usageTemplate != "" {
+		root.SetUsageTemplate(text.usageTemplate)
+	}
 	root.AddCommand(newStatusCmd(), newPingCmd(), newWatchCmd(), newConfigCmd(), newUpgradeCmd(), newUninstallCmd(), newVersionCmd())
-	return root.Execute()
+	localizeCompletionCommand(root, text)
+	root.SetHelpCommand(newHelpCommand(text))
+	localizeHelpFlags(root, text)
+	return root
+}
+
+func newHelpCommand(text cliText) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "help [command]",
+		Short: text.helpCommandShort,
+		Long:  text.helpCommandLong,
+		Run: func(cmd *cobra.Command, args []string) {
+			target, _, err := cmd.Root().Find(args)
+			if target == nil || err != nil {
+				fmt.Fprintf(cmd.ErrOrStderr(), "%s %#q\n", text.helpUnknownTopic, args)
+				_ = cmd.Root().Usage()
+				return
+			}
+			target.InitDefaultHelpFlag()
+			localizeHelpFlag(target, text)
+			_ = target.Help()
+		},
+	}
+	cmd.InitDefaultHelpFlag()
+	localizeHelpFlag(cmd, text)
+	return cmd
+}
+
+func localizeHelpFlags(cmd *cobra.Command, text cliText) {
+	cmd.InitDefaultHelpFlag()
+	localizeHelpFlag(cmd, text)
+	for _, child := range cmd.Commands() {
+		localizeHelpFlags(child, text)
+	}
+}
+
+func localizeHelpFlag(cmd *cobra.Command, text cliText) {
+	if flag := cmd.Flags().Lookup("help"); flag != nil {
+		flag.Usage = text.helpFlag
+	}
+}
+
+func localizeCompletionCommand(root *cobra.Command, text cliText) {
+	root.InitDefaultCompletionCmd()
+	cmd := findChildCommand(root, "completion")
+	if cmd == nil {
+		return
+	}
+	cmd.Short = text.completionShort
+	cmd.Long = text.completionLong
+
+	for _, child := range cmd.Commands() {
+		child.Short = fmt.Sprintf(text.completionShellShort, child.Name())
+		child.Long = fmt.Sprintf(text.completionShellLong, child.Name())
+		if flag := child.Flags().Lookup("no-descriptions"); flag != nil {
+			flag.Usage = text.completionNoDescFlag
+		}
+	}
+}
+
+func findChildCommand(parent *cobra.Command, name string) *cobra.Command {
+	for _, child := range parent.Commands() {
+		if child.Name() == name {
+			return child
+		}
+	}
+	return nil
 }
 
 func newVersionCmd() *cobra.Command {
+	text := localizedText()
 	return &cobra.Command{
-		Use:   "version",
-		Short: "Print the version",
+		Use:     "version",
+		Aliases: []string{"v", "ver"},
+		Short:   text.versionShort,
+		Args:    cobra.NoArgs,
 		Run: func(cmd *cobra.Command, _ []string) {
 			fmt.Fprintf(cmd.OutOrStdout(), "limitping %s\n", Version)
 		},

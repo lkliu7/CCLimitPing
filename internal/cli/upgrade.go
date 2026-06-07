@@ -21,11 +21,12 @@ import (
 const releaseDownloadBase = "https://github.com/wavever/CCLimitPing/releases/latest/download"
 
 func newUpgradeCmd() *cobra.Command {
+	text := localizedText()
 	return &cobra.Command{
 		Use:     "upgrade",
-		Aliases: []string{"update"},
-		Short:   "Upgrade limitping to the latest release",
-		Long:    "Download the latest GitHub release for this OS/architecture and replace the currently running limitping binary.",
+		Aliases: []string{"up", "update"},
+		Short:   text.upgradeShort,
+		Long:    text.upgradeLong,
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Minute)

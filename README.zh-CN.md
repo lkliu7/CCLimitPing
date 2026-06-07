@@ -138,19 +138,23 @@ Codex),或一个 Coding Plan 的 API Key(GLM)。
 
 ```sh
 limitping config init          # 生成 ~/.config/limitping/config.toml
-limitping status               # 查看 5h/周 用量百分比 + 重置倒计时(零消耗)
+limitping status               # 查看 5h/周 用量百分比 + 重置倒计时(简称: s)
 limitping status -v            # 额外打印原始 JSON
-limitping ping                 # 立即触发所有已启用的 Provider
+limitping ping                 # 立即触发所有已启用的 Provider(简称: p)
 limitping ping claude          # 只触发 Claude
 limitping ping codex           # 只触发 Codex
 limitping ping glm             # 只触发 GLM
 limitping ping --dry-run       # 只打印将执行的命令,不真正发送
-limitping watch                # 前台守护:在每个窗口重置时自动 ping
+limitping watch                # 前台守护:在每个窗口重置时自动 ping(简称: w)
 limitping watch claude         # 只监测某一个 Provider(claude|codex|glm)
 limitping watch --dry-run      # 只记录何时会触发,不真正发送
-limitping upgrade              # 更新到最新 GitHub Release(update 是别名)
-limitping uninstall            # 删除 limitping 以及配置/缓存
+limitping version              # 打印版本号(简称: v、ver)
+limitping upgrade              # 更新到最新 GitHub Release(简称: up; update 是别名)
+limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm、remove)
 ```
+
+配置命令也支持简称:`limitping c i` 等同于 `config init`, `limitping c p` 等同于
+`config path`。
 
 `ping` 会显示具体命令、实时计时(终端下是 spinner)、本次 ping 消耗的 **token 数**
 (在 `codex --json` / GLM API 返回里解析),以及在可获取时显示 **美元费用**:

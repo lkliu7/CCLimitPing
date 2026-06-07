@@ -148,19 +148,23 @@ logged in (Claude / Codex), or a Coding Plan API key (GLM).
 
 ```sh
 limitping config init          # write ~/.config/limitping/config.toml
-limitping status               # show 5h/weekly % + reset countdowns (no quota)
+limitping status               # show 5h/weekly % + reset countdowns (alias: s)
 limitping status -v            # also print raw JSON
-limitping ping                 # trigger all enabled providers now
+limitping ping                 # trigger all enabled providers now (alias: p)
 limitping ping claude          # Claude only
 limitping ping codex           # Codex only
 limitping ping glm             # GLM only
 limitping ping --dry-run       # show the commands without sending
-limitping watch                # foreground daemon: ping each window at reset
+limitping watch                # foreground daemon: ping each window at reset (alias: w)
 limitping watch claude         # watch only one provider (claude|codex|glm)
 limitping watch --dry-run      # log when pings would fire, without sending
-limitping upgrade              # update to the latest GitHub release (alias: update)
-limitping uninstall            # remove limitping plus config/cache
+limitping version              # print the version (aliases: v, ver)
+limitping upgrade              # update to the latest GitHub release (aliases: up, update)
+limitping uninstall            # remove limitping plus config/cache (aliases: rm, remove)
 ```
+
+Short aliases are also available for config commands: `limitping c i` for
+`config init` and `limitping c p` for `config path`.
 
 `ping` shows the exact command, a live timer (a spinner on a terminal), the
 **token usage** the ping consumed where available (parsed from `codex --json` or

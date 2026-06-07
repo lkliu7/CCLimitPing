@@ -9,9 +9,12 @@ import (
 )
 
 func newConfigCmd() *cobra.Command {
+	text := localizedText()
 	cmd := &cobra.Command{
-		Use:   "config",
-		Short: "Manage the configuration file",
+		Use:     "config",
+		Aliases: []string{"c", "cfg"},
+		Short:   text.configShort,
+		Args:    cobra.NoArgs,
 	}
 	cmd.AddCommand(newConfigInitCmd(), newConfigPathCmd())
 	return cmd
@@ -19,9 +22,12 @@ func newConfigCmd() *cobra.Command {
 
 func newConfigInitCmd() *cobra.Command {
 	var force bool
+	text := localizedText()
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Write a default config file",
+		Use:     "init",
+		Aliases: []string{"i"},
+		Short:   text.configInitShort,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, err := config.WriteDefault(force)
 			if err != nil {
@@ -31,14 +37,17 @@ func newConfigInitCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&force, "force", false, "overwrite an existing config")
+	cmd.Flags().BoolVar(&force, "force", false, text.configInitForce)
 	return cmd
 }
 
 func newConfigPathCmd() *cobra.Command {
+	text := localizedText()
 	return &cobra.Command{
-		Use:   "path",
-		Short: "Print the config file path",
+		Use:     "path",
+		Aliases: []string{"p"},
+		Short:   text.configPathShort,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			path, err := config.Path()
 			if err != nil {

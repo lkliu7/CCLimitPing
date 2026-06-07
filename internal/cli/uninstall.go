@@ -14,16 +14,18 @@ import (
 
 func newUninstallCmd() *cobra.Command {
 	var keepConfig bool
+	text := localizedText()
 	cmd := &cobra.Command{
-		Use:   "uninstall",
-		Short: "Remove limitping and its config/cache",
-		Long:  "Remove the currently running limitping binary and its config/cache directory. Pass --keep-config to preserve config/cache files.",
-		Args:  cobra.NoArgs,
+		Use:     "uninstall",
+		Aliases: []string{"rm", "remove"},
+		Short:   text.uninstallShort,
+		Long:    text.uninstallLong,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return runUninstall(cmd.OutOrStdout(), cmd.ErrOrStderr(), keepConfig)
 		},
 	}
-	cmd.Flags().BoolVar(&keepConfig, "keep-config", false, "preserve the limitping config/cache directory")
+	cmd.Flags().BoolVar(&keepConfig, "keep-config", false, text.uninstallKeepConfig)
 	return cmd
 }
 

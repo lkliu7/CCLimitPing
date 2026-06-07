@@ -15,11 +15,13 @@ import (
 
 func newPingCmd() *cobra.Command {
 	var dryRun bool
+	text := localizedText()
 	cmd := &cobra.Command{
-		Use:       "ping [claude|codex|glm|all]",
-		Short:     "Trigger a window now by sending a minimal message",
-		Long:      "Trigger a rate-limit window now. With no argument it pings every enabled provider; pass a name to trigger just that one.\n\nExamples:\n  limitping ping          # all enabled providers\n  limitping ping claude   # Claude only\n  limitping ping codex    # Codex only\n  limitping ping glm      # GLM only",
-		Args:      cobra.MaximumNArgs(1),
+		Use:       "ping [provider]",
+		Aliases:   []string{"p"},
+		Short:     text.pingShort,
+		Long:      text.pingLong,
+		Args:      cobra.MatchAll(cobra.MaximumNArgs(1), cobra.OnlyValidArgs),
 		ValidArgs: []string{"claude", "codex", "glm", "all"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := "all"
@@ -45,7 +47,7 @@ func newPingCmd() *cobra.Command {
 			return firstErr
 		},
 	}
-	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "print the command without sending")
+	cmd.Flags().BoolVar(&dryRun, "dry-run", false, text.pingDryRunFlag)
 	return cmd
 }
 

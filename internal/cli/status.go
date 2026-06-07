@@ -13,9 +13,13 @@ import (
 
 func newStatusCmd() *cobra.Command {
 	var verbose bool
+	text := localizedText()
 	cmd := &cobra.Command{
-		Use:   "status",
-		Short: "Show current 5h/weekly usage and reset countdowns (no quota used)",
+		Use:     "status",
+		Aliases: []string{"s", "stat"},
+		Short:   text.statusShort,
+		Long:    text.statusLong,
+		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -44,7 +48,7 @@ func newStatusCmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "print the raw JSON response")
+	cmd.Flags().BoolVarP(&verbose, "verbose", "v", false, text.statusVerboseFlag)
 	return cmd
 }
 
