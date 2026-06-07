@@ -1,0 +1,10 @@
+# build output
+/bin/
+/dist/
+/limitping
+*.out
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
