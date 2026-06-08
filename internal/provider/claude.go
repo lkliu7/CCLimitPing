@@ -26,7 +26,18 @@ const (
 	claudeFiveHourSec = 5 * 60 * 60
 	claudeWeeklySec   = 7 * 24 * 60 * 60
 
-	claudeInteractiveExitDelay = 2 * time.Second
+	// Interactive-trigger timing. The 5h window anchors when the submitted
+	// prompt's request is dispatched, so we wait for the TUI to render and
+	// settle, submit the prompt, let the turn run until its output goes quiet,
+	// then exit cleanly — exiting before the request dispatches leaves the
+	// window unstarted (the original "wait 2s then /exit" bug).
+	claudeStartupTimeout = 10 * time.Second
+	claudeStartupSettle  = 1200 * time.Millisecond
+	claudeTurnMinWait    = 4 * time.Second
+	claudeTurnQuiet      = 2500 * time.Millisecond
+	claudeTurnMaxWait    = 45 * time.Second
+	claudeExitGrace      = 5 * time.Second
+	claudePollInterval   = 200 * time.Millisecond
 )
 
 // Claude reads usage via the OAuth usage endpoint and triggers windows via the
@@ -137,25 +148,73 @@ func (c *Claude) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, erro
 		done <- cmd.Wait()
 	}()
 
-	exitTimer := time.NewTimer(claudeInteractiveExitDelay)
-	defer exitTimer.Stop()
-
-	select {
-	case err := <-done:
-		return res, claudeInteractiveErr(err, output)
-	case <-ctx.Done():
-		return res, claudeInteractiveCancel(ctx, cmd, ptmx, done, output)
-	case <-exitTimer.C:
-		if _, err := ptmx.Write([]byte("/exit\r")); err != nil {
-			return res, fmt.Errorf("claude interactive failed to queue exit: %w: %s", err, truncate(output.Bytes(), 300))
-		}
+	// Phase 1: wait for the TUI to render and settle so the submit Enter lands on
+	// a ready prompt holding the prefilled message.
+	if terminal, err := claudeAwait(ctx, cmd, ptmx, output, done, claudeStartupTimeout,
+		func(idle, _ time.Duration) bool { return idle >= claudeStartupSettle }); terminal {
+		return res, err
 	}
 
+	// Submit the prefilled prompt. This is the model request that anchors the 5h
+	// window; the previous implementation never sent it, so the window never
+	// started even though the session exited cleanly.
+	if _, werr := ptmx.Write([]byte("\r")); werr != nil {
+		return res, fmt.Errorf("claude interactive failed to submit prompt: %w: %s", werr, truncate(output.Bytes(), 300))
+	}
+
+	// Phase 2: let the turn run until its output goes quiet (bounded by a floor
+	// and a hard cap), so we don't cancel the in-flight request by exiting early.
+	if terminal, err := claudeAwait(ctx, cmd, ptmx, output, done, claudeTurnMaxWait,
+		func(idle, elapsed time.Duration) bool {
+			return elapsed >= claudeTurnMinWait && idle >= claudeTurnQuiet
+		}); terminal {
+		return res, err
+	}
+
+	// Phase 3: quit. The window is already anchored, so a messy shutdown here
+	// must not fail the ping.
+	_, _ = ptmx.Write([]byte("/exit\r"))
 	select {
 	case err := <-done:
 		return res, claudeInteractiveErr(err, output)
 	case <-ctx.Done():
 		return res, claudeInteractiveCancel(ctx, cmd, ptmx, done, output)
+	case <-time.After(claudeExitGrace):
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+		}
+		return res, nil
+	}
+}
+
+// claudeAwait polls the interactive session until ready(idle, elapsed) reports
+// the desired state or maxWait elapses, where idle is the time since the last
+// PTY output and elapsed is the time since this phase began. It returns
+// terminal=true (with an error to propagate) only if the process exits or ctx is
+// cancelled first; otherwise terminal=false and the caller continues.
+func claudeAwait(ctx context.Context, cmd *exec.Cmd, ptmx *os.File, output *limitedBuffer, done <-chan error, maxWait time.Duration, ready func(idle, elapsed time.Duration) bool) (bool, error) {
+	start := time.Now()
+	deadline := time.After(maxWait)
+	ticker := time.NewTicker(claudePollInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case err := <-done:
+			return true, claudeInteractiveErr(err, output)
+		case <-ctx.Done():
+			return true, claudeInteractiveCancel(ctx, cmd, ptmx, done, output)
+		case <-deadline:
+			return false, nil
+		case <-ticker.C:
+			changed := output.changedAt()
+			if !changed.IsZero() && ready(time.Since(changed), time.Since(start)) {
+				return false, nil
+			}
+		}
 	}
 }
 
@@ -236,9 +295,10 @@ func claudeInteractiveUnsupportedValueArg(flag string) bool {
 }
 
 type limitedBuffer struct {
-	mu    sync.Mutex
-	limit int
-	buf   []byte
+	mu      sync.Mutex
+	limit   int
+	buf     []byte
+	changed time.Time // time of the last write, used to detect when output goes quiet
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
@@ -248,6 +308,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	if b.limit > 0 && len(b.buf) > b.limit {
 		b.buf = b.buf[len(b.buf)-b.limit:]
 	}
+	b.changed = time.Now()
 	return len(p), nil
 }
 
@@ -255,6 +316,13 @@ func (b *limitedBuffer) Bytes() []byte {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return append([]byte(nil), b.buf...)
+}
+
+// changedAt reports when output last arrived; the zero value means no output yet.
+func (b *limitedBuffer) changedAt() time.Time {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.changed
 }
 
 func parseTime(s string) time.Time {
