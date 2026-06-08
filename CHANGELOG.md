@@ -7,6 +7,10 @@ through GitHub Actions and GoReleaser.
 
 ## Unreleased
 
+- Nothing yet.
+
+## v0.4.0
+
 - Added hook-based active-session detection: `limitping hooks install` /
   `uninstall` registers limitping's hooks in `~/.claude/settings.json` and
   `~/.codex/hooks.json` so `watch` can tell when a session is genuinely mid-turn
