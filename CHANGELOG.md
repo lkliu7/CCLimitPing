@@ -5,6 +5,16 @@ All notable changes to this project should be documented here.
 This project uses version tags such as `v0.2.0`. Release binaries are published
 through GitHub Actions and GoReleaser.
 
+## v0.4.1
+
+- Fixed Claude/Codex usage reads to match the official client request shape
+  more closely, including provider-specific headers and Codex `chatgpt_base_url`
+  handling.
+- Added status-aware handling for usage endpoint 429s so `watch` pauses reads
+  instead of repeatedly retrying a rate-limited endpoint.
+- Fixed usage reads on networks where Go's HTTP/2 client path returns EOF or
+  malformed responses by using a dedicated HTTP/1.1 usage client.
+
 ## v0.4.0
 
 - `watch` now draws a live status line on an interactive terminal: a spinner

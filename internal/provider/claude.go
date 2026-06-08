@@ -23,6 +23,7 @@ import (
 const (
 	claudeUsageURL    = "https://api.anthropic.com/api/oauth/usage"
 	claudeOAuthBeta   = "oauth-2025-04-20"
+	claudeFallbackVer = "2.1.0"
 	claudeFiveHourSec = 5 * 60 * 60
 	claudeWeeklySec   = 7 * 24 * 60 * 60
 
@@ -38,6 +39,11 @@ const (
 	claudeTurnMaxWait    = 45 * time.Second
 	claudeExitGrace      = 5 * time.Second
 	claudePollInterval   = 200 * time.Millisecond
+)
+
+var (
+	claudeUserAgentOnce sync.Once
+	claudeUserAgent     string
 )
 
 // Claude reads usage via the OAuth usage endpoint and triggers windows via the
@@ -82,7 +88,10 @@ func (c *Claude) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("anthropic-beta", claudeOAuthBeta)
+		req.Header.Set("User-Agent", claudeCodeUserAgent())
 		return req, nil
 	})
 	if err != nil {
@@ -111,6 +120,32 @@ func (c *Claude) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 	}
 	u.LimitReached = u.FiveHour.UsedPercent >= 100 || u.Weekly.UsedPercent >= 100
 	return u, nil
+}
+
+func claudeCodeUserAgent() string {
+	claudeUserAgentOnce.Do(func() {
+		claudeUserAgent = "claude-code/" + claudeFallbackVer
+
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		out, err := exec.CommandContext(ctx, "claude", "--version").Output()
+		if err != nil {
+			return
+		}
+		if version := normalizedClaudeVersion(string(out)); version != "" {
+			claudeUserAgent = "claude-code/" + version
+		}
+	})
+	return claudeUserAgent
+}
+
+func normalizedClaudeVersion(raw string) string {
+	fields := strings.Fields(strings.TrimSpace(raw))
+	if len(fields) == 0 {
+		return ""
+	}
+	return fields[0]
 }
 
 func (c *Claude) Trigger(ctx context.Context, dryRun bool) (*TriggerResult, error) {

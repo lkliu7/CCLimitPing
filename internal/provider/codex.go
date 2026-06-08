@@ -6,8 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"time"
+
+	"github.com/BurntSushi/toml"
 
 	"github.com/wavever/CCLimitPing/internal/activity"
 	"github.com/wavever/CCLimitPing/internal/auth"
@@ -16,7 +22,12 @@ import (
 	"github.com/wavever/CCLimitPing/internal/usage"
 )
 
-const codexUsageURL = "https://chatgpt.com/backend-api/wham/usage"
+const (
+	codexDefaultBaseURL = "https://chatgpt.com/backend-api"
+	codexChatGPTPath    = "/wham/usage"
+	codexAPIPath        = "/api/codex/usage"
+	codexUserAgent      = "limitping"
+)
 
 // Codex reads usage via the ChatGPT backend usage endpoint and triggers windows
 // via the `codex exec` headless CLI.
@@ -65,13 +76,15 @@ type codexUsageResp struct {
 func (c *Codex) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 	accountID, _ := c.auth.AccountID(ctx)
 	body, err := fetchWithAuth(ctx, c.auth, func(token string) (*http.Request, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexUsageURL, nil)
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, codexUsageURL(), nil)
 		if err != nil {
 			return nil, err
 		}
 		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Accept", "application/json")
+		req.Header.Set("User-Agent", codexUserAgent)
 		if accountID != "" {
-			req.Header.Set("chatgpt-account-id", accountID)
+			req.Header.Set("ChatGPT-Account-Id", accountID)
 		}
 		return req, nil
 	})
@@ -101,6 +114,63 @@ func (c *Codex) ReadUsage(ctx context.Context) (*usage.Usage, error) {
 		}
 	}
 	return u, nil
+}
+
+func codexUsageURL() string {
+	base := codexDefaultBaseURL
+	if contents, err := os.ReadFile(codexConfigPath()); err == nil {
+		if configured := parseCodexBaseURL(string(contents)); configured != "" {
+			base = configured
+		}
+	}
+	return codexUsageURLFromBase(base)
+}
+
+func codexUsageURLFromBase(base string) string {
+	normalized := normalizeCodexBaseURL(base)
+	path := codexAPIPath
+	if strings.Contains(normalized, "/backend-api") {
+		path = codexChatGPTPath
+	}
+	endpoint := normalized + path
+	if _, err := url.ParseRequestURI(endpoint); err != nil {
+		return codexDefaultBaseURL + codexChatGPTPath
+	}
+	return endpoint
+}
+
+func normalizeCodexBaseURL(base string) string {
+	base = strings.TrimSpace(base)
+	if base == "" {
+		base = codexDefaultBaseURL
+	}
+	base = strings.TrimRight(base, "/")
+	if (strings.HasPrefix(base, "https://chatgpt.com") || strings.HasPrefix(base, "https://chat.openai.com")) &&
+		!strings.Contains(base, "/backend-api") {
+		base += "/backend-api"
+	}
+	return base
+}
+
+func parseCodexBaseURL(contents string) string {
+	var cfg struct {
+		ChatGPTBaseURL string `toml:"chatgpt_base_url"`
+	}
+	if _, err := toml.Decode(contents, &cfg); err != nil {
+		return ""
+	}
+	return strings.TrimSpace(cfg.ChatGPTBaseURL)
+}
+
+func codexConfigPath() string {
+	if h := os.Getenv("CODEX_HOME"); h != "" {
+		return filepath.Join(h, "config.toml")
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return filepath.Join(".codex", "config.toml")
+	}
+	return filepath.Join(home, ".codex", "config.toml")
 }
 
 func codexWindowToUsage(w codexWindow) usage.Window {

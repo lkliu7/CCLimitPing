@@ -7,9 +7,11 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"sync"
 	"time"
 
@@ -23,6 +25,7 @@ const (
 	postPingGrace  = 15 * time.Second // wait after a ping before re-reading usage
 	minBackoff     = 30 * time.Second
 	maxBackoff     = 10 * time.Minute
+	rateLimitPause = 5 * time.Minute
 	defaultWindow  = 5 * time.Hour // fallback when the API omits the window length
 	maxSleepChunk  = 30 * time.Minute
 	readTimeout    = 30 * time.Second
@@ -111,6 +114,17 @@ func (s *Scheduler) runTarget(ctx context.Context, t Target) {
 		u, err := t.Provider.ReadUsage(rctx)
 		cancel()
 		if err != nil {
+			var httpErr *provider.UsageHTTPError
+			if errors.As(err, &httpErr) && httpErr.StatusCode == http.StatusTooManyRequests {
+				wait := usageRateLimitWait(httpErr.RetryAfter, time.Now())
+				s.log.Printf("[%s] usage endpoint rate limited; pausing reads for %s", name, wait.Round(time.Second))
+				s.live.set(name, "usage rate limited", time.Now().Add(wait))
+				if !sleepCtx(ctx, wait) {
+					return
+				}
+				backoff = minBackoff
+				continue
+			}
 			s.log.Printf("[%s] read usage failed: %v (retry in %s)", name, err, backoff)
 			s.live.set(name, "read failed — retrying", time.Now().Add(backoff))
 			if !sleepCtx(ctx, backoff) {
@@ -283,6 +297,16 @@ func nextBackoff(d time.Duration) time.Duration {
 		return maxBackoff
 	}
 	return d
+}
+
+func usageRateLimitWait(retryAfter time.Time, now time.Time) time.Duration {
+	if !retryAfter.IsZero() {
+		wait := retryAfter.Sub(now)
+		if wait > 0 {
+			return wait
+		}
+	}
+	return rateLimitPause
 }
 
 // sleepCtx sleeps for d (in chunks, so long sleeps stay responsive to

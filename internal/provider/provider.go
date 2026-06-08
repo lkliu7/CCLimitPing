@@ -4,12 +4,15 @@ package provider
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
 	"math/rand"
 	"net"
 	"net/http"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +23,25 @@ const (
 	usageGETAttempts = 3
 	usageGETBackoff  = 500 * time.Millisecond
 )
+
+var usageHTTPClient = newUsageHTTPClient()
+
+func newUsageHTTPClient() *http.Client {
+	transport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		return http.DefaultClient
+	}
+	t := transport.Clone()
+	t.ForceAttemptHTTP2 = false
+	if t.TLSClientConfig == nil {
+		t.TLSClientConfig = &tls.Config{}
+	} else {
+		t.TLSClientConfig = t.TLSClientConfig.Clone()
+	}
+	t.TLSClientConfig.NextProtos = []string{"http/1.1"}
+	t.TLSNextProto = map[string]func(string, *tls.Conn) http.RoundTripper{}
+	return &http.Client{Transport: t}
+}
 
 // Provider abstracts a single AI coding provider.
 type Provider interface {
@@ -52,6 +74,21 @@ type TriggerResult struct {
 	CostUSD      float64
 }
 
+// UsageHTTPError preserves usage endpoint HTTP failures so callers can make
+// status-aware scheduling decisions instead of treating every failure alike.
+type UsageHTTPError struct {
+	StatusCode int
+	Body       string
+	RetryAfter time.Time
+}
+
+func (e *UsageHTTPError) Error() string {
+	if e.Body == "" {
+		return fmt.Sprintf("usage endpoint returned HTTP %d", e.StatusCode)
+	}
+	return fmt.Sprintf("usage endpoint returned HTTP %d: %s", e.StatusCode, e.Body)
+}
+
 // tokenSource is satisfied by the auth holders for both providers.
 type tokenSource interface {
 	Token(ctx context.Context) (string, error)
@@ -69,14 +106,14 @@ func fetchWithAuth(ctx context.Context, src tokenSource, buildReq func(token str
 		return nil, err
 	}
 
-	body, status, err := doGet(ctx, token, buildReq)
+	body, status, header, err := doGet(ctx, token, buildReq)
 	if err != nil {
 		return nil, err
 	}
 	if status == http.StatusUnauthorized {
 		if t, rerr := src.Reload(ctx); rerr == nil && t != token {
 			token = t
-			if body, status, err = doGet(ctx, token, buildReq); err != nil {
+			if body, status, header, err = doGet(ctx, token, buildReq); err != nil {
 				return nil, err
 			}
 		}
@@ -87,60 +124,66 @@ func fetchWithAuth(ctx context.Context, src tokenSource, buildReq func(token str
 			return nil, fmt.Errorf("unauthorized and refresh failed: %w", rerr)
 		}
 		token = t
-		if body, status, err = doGet(ctx, token, buildReq); err != nil {
+		if body, status, header, err = doGet(ctx, token, buildReq); err != nil {
 			return nil, err
 		}
 	}
 	if status != http.StatusOK {
-		return nil, fmt.Errorf("usage endpoint returned HTTP %d: %s", status, truncate(body, 300))
+		return nil, &UsageHTTPError{
+			StatusCode: status,
+			Body:       truncate(body, 300),
+			RetryAfter: retryAfterFromHeader(header, time.Now()),
+		}
 	}
 	return body, nil
 }
 
-func doGet(ctx context.Context, token string, buildReq func(token string) (*http.Request, error)) ([]byte, int, error) {
+func doGet(ctx context.Context, token string, buildReq func(token string) (*http.Request, error)) ([]byte, int, http.Header, error) {
 	var lastBody []byte
 	var lastStatus int
+	var lastHeader http.Header
 	var lastErr error
 
 	for attempt := 1; attempt <= usageGETAttempts; attempt++ {
 		req, err := buildReq(token)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, nil, err
 		}
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := usageHTTPClient.Do(req)
 		if err != nil {
 			lastErr = err
 			if !shouldRetryUsageGET(ctx, attempt, 0, err) {
-				return nil, 0, err
+				return nil, 0, nil, err
 			}
 			if !sleepBeforeUsageRetry(ctx, attempt) {
-				return nil, 0, ctx.Err()
+				return nil, 0, nil, ctx.Err()
 			}
 			continue
 		}
 
 		body, readErr := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		lastBody, lastStatus, lastErr = body, resp.StatusCode, readErr
+		header := resp.Header.Clone()
+		lastBody, lastStatus, lastHeader, lastErr = body, resp.StatusCode, header, readErr
 
 		if readErr != nil {
 			if !shouldRetryUsageGET(ctx, attempt, resp.StatusCode, readErr) {
-				return nil, resp.StatusCode, readErr
+				return nil, resp.StatusCode, header, readErr
 			}
 			if !sleepBeforeUsageRetry(ctx, attempt) {
-				return nil, 0, ctx.Err()
+				return nil, 0, nil, ctx.Err()
 			}
 			continue
 		}
 		if !retryableHTTPStatus(resp.StatusCode) || !shouldRetryUsageGET(ctx, attempt, resp.StatusCode, nil) {
-			return body, resp.StatusCode, nil
+			return body, resp.StatusCode, header, nil
 		}
 		if !sleepBeforeUsageRetry(ctx, attempt) {
-			return nil, 0, ctx.Err()
+			return nil, 0, nil, ctx.Err()
 		}
 	}
 
-	return lastBody, lastStatus, lastErr
+	return lastBody, lastStatus, lastHeader, lastErr
 }
 
 func shouldRetryUsageGET(ctx context.Context, attempt, status int, err error) bool {
@@ -157,7 +200,8 @@ func transientNetError(err error) bool {
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return false
 	}
-	if errors.Is(err, io.ErrUnexpectedEOF) ||
+	if errors.Is(err, io.EOF) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, syscall.ECONNRESET) ||
 		errors.Is(err, syscall.ECONNABORTED) ||
 		errors.Is(err, syscall.ECONNREFUSED) {
@@ -169,12 +213,26 @@ func transientNetError(err error) bool {
 
 func retryableHTTPStatus(status int) bool {
 	switch status {
-	case http.StatusRequestTimeout, http.StatusTooEarly, http.StatusTooManyRequests,
+	case http.StatusRequestTimeout, http.StatusTooEarly,
 		http.StatusBadGateway, http.StatusServiceUnavailable, http.StatusGatewayTimeout:
 		return true
 	default:
 		return status >= 500 && status != http.StatusNotImplemented
 	}
+}
+
+func retryAfterFromHeader(header http.Header, now time.Time) time.Time {
+	raw := strings.TrimSpace(header.Get("Retry-After"))
+	if raw == "" {
+		return time.Time{}
+	}
+	if seconds, err := strconv.ParseFloat(raw, 64); err == nil && seconds >= 0 {
+		return now.Add(time.Duration(seconds * float64(time.Second)))
+	}
+	if t, err := http.ParseTime(raw); err == nil {
+		return t
+	}
+	return time.Time{}
 }
 
 func sleepBeforeUsageRetry(ctx context.Context, attempt int) bool {

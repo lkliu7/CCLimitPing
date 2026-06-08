@@ -45,3 +45,12 @@ func TestClaudeTriggerDryRunUsesInteractiveCommand(t *testing.T) {
 		t.Fatalf("command still uses headless mode: %q", res.Command)
 	}
 }
+
+func TestNormalizedClaudeVersion(t *testing.T) {
+	if got := normalizedClaudeVersion("2.1.168 (Claude Code)\n"); got != "2.1.168" {
+		t.Fatalf("version = %q, want %q", got, "2.1.168")
+	}
+	if got := normalizedClaudeVersion(" \n\t"); got != "" {
+		t.Fatalf("empty version = %q, want empty", got)
+	}
+}
