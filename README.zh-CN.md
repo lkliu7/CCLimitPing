@@ -12,50 +12,54 @@
 ![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-让你的 **Claude Code** 和 **Codex** 的限额窗口背靠背、不留空档。
+在上一个窗口重置的瞬间,立即启动下一个 **Claude Code** / **Codex** 限额窗口。
 
-这些 Provider 都按 **5 小时滚动窗口**(外加周限额)计费,而且 **5h 窗口从你发出的
-第一条消息开始计时**。如果窗口重置后你没有立刻发消息,这段空档就被浪费了——下一个
-窗口要等你下次用时才起算,于是窗口和你的作息逐渐错位。
+Claude Code 和 Codex 的订阅限额按 **5 小时滚动窗口**(外加周限额)计算。新的 5h 窗口
+不会因为上一个窗口重置就自动开始,而是从你下一次真正发起计费请求时才开始。如果你隔了
+几个小时才再次使用,这段空档就被浪费了,窗口节奏也会越拖越偏。
 
-`limitping` 会盯着每个 Provider,**在 5h 窗口重置的那一刻自动发一条最小消息,立即起算
-下一个窗口**——让你的窗口连续、可预测。
+`limitping` 会读取每个 Provider 的重置时间,并在窗口翻篇后通过官方 CLI 发一条极小请求。
+你可以手动 `ping` 一次,也可以让 `watch` 前台守护,或者用 `bg start` 脱离终端在后台常驻。
 
 ```
 claude  ✓ pinged (6.6s)
-codex   ✓ pinged (13.6s, 16,862 tok (in 16,814 / out 48), $0.0098)
+codex   ✓ pinged (13.6s)
 ```
 
 ## 亮点
 
-- 让 5 小时 Provider 窗口连续接上,避免空档把你的使用节奏越拖越偏。
-- 用零消耗用量端点读取状态,并通过官方 Provider 工具触发新窗口。
-- 支持 Claude Code 和 Codex。
-- 通过 CLI 钩子检测正在进行中的 Claude/Codex 会话,推迟自己的 ping,绝不和你的对话抢窗口。
-- 内置 dry-run、周限额保护、重置缓冲、本地配置,且不带遥测。
+- 在窗口安全重置后立即 ping,让 5 小时窗口连续接上,不被空档拖偏。
+- 支持多种运行方式:手动 `ping`、前台 `watch`,或用 `bg start` 后台常驻;配套
+  `bg status`、`bg logs -f`、`bg stop` 管理。
+- `status` / `bg status` 会展示 5h 与周用量、重置倒计时以及后台监听状态。
+- 通过只读用量端点读取状态,通过官方 Claude Code / Codex CLI 触发窗口,复用已有登录态。
+- 通过 CLI 钩子识别正在进行中的 Claude/Codex 会话,必要时推迟自己的 ping,不抢你的对话。
+- 内置 dry-run、周限额保护、重置缓冲、低成本模型默认值、macOS 通知、本地配置,且不带遥测。
 
 ## 快速开始
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wavever/CCLimitPing/main/install.sh | sh
 limitping config init
-limitping ping --dry-run
 limitping status
+limitping ping --dry-run
 limitping watch                # 前台运行(Ctrl-C 停止)
 # ...或在后台运行,释放终端:
 limitping bg start
 limitping bg status
+limitping bg logs -f
 ```
 
-如果你想先确认会发生什么、但不消耗 Provider 额度,先运行
-`limitping ping --dry-run` 或 `limitping watch --dry-run`。
+如果你想先确认会发生什么、但不消耗 Provider 额度,可以先运行
+`limitping ping --dry-run`、`limitping watch --dry-run` 或
+`limitping bg start --dry-run`。
 
 ## 支持的 Provider
 
 | Provider | 读取用量(零消耗) | 触发方式 | 鉴权 |
 |---|---|---|---|
 | **Claude Code** | `…/api/oauth/usage` | 交互式 Claude Code CLI | OAuth(钥匙串 / `~/.claude`) |
-| **Codex** | `…/backend-api/wham/usage` | `codex exec` | OAuth(`~/.codex/auth.json`) |
+| **Codex** | `…/backend-api/wham/usage` | 交互式 Codex CLI | OAuth(`~/.codex/auth.json`) |
 
 ## 工作原理
 
@@ -63,7 +67,7 @@ limitping bg status
 
 | 任务 | 机制 | 代价 |
 |------|------|------|
-| **触发**新窗口 | 官方 CLI(交互式 Claude Code / `codex exec`) | 消耗一点额度(这正是功能本身) |
+| **触发**新窗口 | 官方交互式 CLI(Claude Code / Codex) | 消耗一点额度(这正是功能本身) |
 | **读取**用量与重置时刻 | 零消耗用量端点(和 CodexBar / 社区插件用的是同一批) | 不消耗,也绝不会起算窗口 |
 
 当 `watch` 发现 5h 窗口已经重置时,会先检查是否有 Claude/Codex 会话正处于对话进行中。
@@ -76,7 +80,9 @@ limitping bg status
   TTY 的交互式 `claude "<prompt>"` 会话,因此在 headless print 命令改走 Agent
   SDK/API credits 后仍会起算 Claude 订阅窗口。
 - **Codex**:用 `~/.codex/auth.json` 里的 OAuth token,读
-  `GET https://chatgpt.com/backend-api/wham/usage`。
+  `GET https://chatgpt.com/backend-api/wham/usage`。触发使用带 TTY 的交互式
+  `codex "<prompt>"` 会话;headless `codex exec` 可能会消耗 token,但不一定起算
+  Codex 订阅窗口。
 
 Claude/Codex 的 token 直接复用官方工具(无需另外登录),遇到 401 会自动刷新。
 
@@ -178,26 +184,17 @@ limitping uninstall            # 删除 limitping 以及配置/缓存(简称: rm
 | `upgrade` | `up`、`update` |
 | `uninstall` | `rm`、`remove` |
 
-`ping` 会显示具体命令、实时计时(终端下是 spinner)、本次 ping 消耗的 **token 数**
-(在 `codex --json` 返回里解析),以及在可获取时显示 **美元费用**:
+`ping` 会显示具体命令和实时计时(终端下是 spinner)。当前 Claude/Codex 都用交互式
+触发,CLI 不提供可靠的逐次 machine-readable token/费用数据,所以成功输出通常只显示耗时:
 
 ```
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
-codex   → codex exec --skip-git-repo-check --json -c model_reasoning_effort=low -m gpt-5.4-mini ok
-codex   ✓ pinged (13.6s, 16,862 tok (in 16,814 / out 48), $0.0098)
+codex   → codex -c model_reasoning_effort=low -m gpt-5.4-mini ok
+codex   ✓ pinged (13.6s)
 ```
 
-费用来源:
-- **Claude** 交互式模式没有逐次 machine-readable 的用量/费用输出,所以不会显示
-  token/cost 后缀。
-- **Codex**(订阅)不返回美元费用,因此——和 CodexBar/ccusage 一样——我们用
-  [LiteLLM 定价数据集](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
-  按等价 API 单价折算(`费用 = 非缓存输入 × input + 缓存输入 × cache-read + 输出 × output`)。
-  数据集缓存在 `~/.config/limitping/litellm_prices.json`(24h TTL),支持模型别名/日期
-  后缀回退。需要设置 `[codex].model` 才能查到单价。
-
-Claude 触发仍会消耗少量 Claude 订阅额度,但交互式 CLI 不暴露本次 ping 的精确 token 数。
+ping 后请用 `status` 或 `bg status` 查看权威的 5h/周窗口状态。
 
 `status` 示例:
 
@@ -232,7 +229,7 @@ enabled          = true
 prompt           = "ok"
 model            = "gpt-5.4-mini"  # 用于触发的最便宜 Codex 模型
 reasoning_effort = "low"  # 启用 web_search/image_gen 工具时,"minimal" 会被拒绝
-extra_args       = []
+extra_args       = []     # 额外 Codex CLI 参数;--json 等 exec-only 参数会被忽略
 align_start      = ""
 ```
 
@@ -338,7 +335,7 @@ internal/usage           归一化的用量模型
 internal/auth            Claude(钥匙串)+ Codex(auth.json)token
 internal/provider        各 Provider 的 ReadUsage(端点)+ Trigger(CLI)
 internal/activity        基于钩子的活跃会话状态(hook 命令与 scheduler 共用)
-internal/pricing         基于 LiteLLM 的美元费用查询(Codex)
+internal/pricing         为能暴露 token 用量的 Provider 准备的价格辅助代码
 internal/scheduler       watch 引擎(sleep 到重置、尊重周限额、退避重试)
 internal/notify          macOS osascript 通知
 internal/cli             cobra 命令:status、ping、watch、background、config、hooks、upgrade、uninstall、version

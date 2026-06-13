@@ -5,6 +5,13 @@ All notable changes to this project should be documented here.
 This project uses version tags such as `v0.2.0`. Release binaries are published
 through GitHub Actions and GoReleaser.
 
+## v0.4.2
+
+- Fixed Codex pings to use the interactive, TTY-backed Codex CLI instead of
+  headless `codex exec`, so the ping anchors the subscription-backed 5h window.
+- Updated Codex trigger docs and examples to match the interactive command path
+  and clarify that per-ping token/cost output is not available in this mode.
+
 ## v0.4.1
 
 - Fixed Claude/Codex usage reads to match the official client request shape

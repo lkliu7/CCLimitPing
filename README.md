@@ -12,56 +12,62 @@
 ![Go](https://img.shields.io/badge/Go-1.25%2B-00ADD8?logo=go&logoColor=white)
 ![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Linux-lightgrey)
 
-Keep your **Claude Code** and **Codex** rate-limit windows back-to-back.
+Start the next **Claude Code** or **Codex** rate-limit window the moment the
+previous one resets.
 
-These providers bill on a **5-hour rolling window** (plus a weekly cap), and the
-5h window **starts on your first message**. If you don't send anything right when
-a window resets, that gap is wasted — the next window only starts whenever you
-happen to use the tool again, drifting out of sync with your day.
+Claude Code and Codex subscription limits run on **5-hour rolling windows**
+(plus a weekly cap). A fresh 5h window does not start just because the previous
+one reset; it starts when you send the first billable request. If that happens
+hours later, the gap is wasted and your window schedule drifts.
 
-`limitping` watches each provider and, **the moment a 5h window resets, sends one
-minimal message to start the next window immediately** — so your windows stay
-continuous and predictable.
+`limitping` watches the reset time and sends one tiny request through the
+official provider CLI right after rollover. Run it once, keep `watch` in the
+foreground, or start a detached `bg` watcher that keeps your window chain alive
+after the terminal closes.
 
 ```
 claude  ✓ pinged (6.6s)
-codex   ✓ pinged (13.6s, 16,862 tok (in 16,814 / out 48), $0.0098)
+codex   ✓ pinged (13.6s)
 ```
 
 ## Highlights
 
-- Keeps 5-hour provider windows continuous instead of letting idle gaps drift
-  your schedule.
-- Reads usage from zero-quota endpoints and triggers windows through the
-  official provider tools.
-- Supports Claude Code and Codex.
-- Detects an actively running Claude/Codex session (via CLI hooks) and defers its
-  ping so it never competes with your own turn.
-- Includes dry-run modes, weekly-limit guards, reset buffers, local config, and
-  no telemetry.
+- Keeps 5h windows continuous by pinging as soon as a reset is safely available.
+- Runs the way you do: one-shot `ping`, foreground `watch`, or detached
+  `bg start` with `bg status`, `bg logs -f`, and `bg stop`.
+- Shows 5h and weekly usage, reset countdowns, and background watcher state from
+  read-only usage endpoints.
+- Triggers Claude Code and Codex through their official CLIs using your existing
+  logged-in credentials.
+- Detects active Claude/Codex turns via CLI hooks and defers its own ping so it
+  does not compete with your work.
+- Includes dry-run modes, weekly-limit guards, reset buffers, cheap-model
+  defaults, macOS notifications, local config, and no telemetry.
 
 ## Quick start
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/wavever/CCLimitPing/main/install.sh | sh
 limitping config init
-limitping ping --dry-run
 limitping status
+limitping ping --dry-run
 limitping watch                # foreground (Ctrl-C to stop)
 # ...or run it in the background, freeing your terminal:
 limitping bg start
 limitping bg status
+limitping bg logs -f
 ```
 
-Use `limitping ping --dry-run` or `limitping watch --dry-run` first if you want
-to inspect what would happen without consuming provider quota.
+Use dry-run first if you want to inspect what would happen without consuming
+provider quota: `limitping ping --dry-run`, `limitping watch --dry-run`, or
+`limitping bg start --dry-run`.
 
 ## Supported providers
 
 | Provider | Read usage (zero-quota) | Trigger | Auth |
 |---|---|---|---|
 | **Claude Code** | `…/api/oauth/usage` | interactive Claude Code CLI | OAuth (Keychain / `~/.claude`) |
-| **Codex** | `…/backend-api/wham/usage` | `codex exec` | OAuth (`~/.codex/auth.json`) |
+| **Codex** | `…/backend-api/wham/usage` | interactive Codex CLI | OAuth (`~/.codex/auth.json`) |
 
 ## How it works
 
@@ -69,7 +75,7 @@ Two cleanly separated jobs:
 
 | Job | Mechanism | Cost |
 |-----|-----------|------|
-| **Trigger** a new window | the official CLI (interactive Claude Code / `codex exec`) | a tiny slice of quota (this is the point) |
+| **Trigger** a new window | the official interactive CLI (Claude Code / Codex) | a tiny slice of quota (this is the point) |
 | **Read** usage & reset times | zero-quota usage endpoints (the same ones CodexBar / community plugins use) | none — never starts a window |
 
 When `watch` sees a 5h window has reset, it first checks whether a Claude/Codex
@@ -87,7 +93,9 @@ the window resets.
   subscription-backed window after the headless print command moves to Agent
   SDK/API credits.
 - **Codex**: reads `GET https://chatgpt.com/backend-api/wham/usage` using the
-  OAuth token from `~/.codex/auth.json`.
+  OAuth token from `~/.codex/auth.json`. Triggering uses a TTY-backed
+  interactive `codex "<prompt>"` session; headless `codex exec` can consume
+  tokens without anchoring the subscription-backed Codex window.
 
 Claude/Codex tokens are reused from the official tools (no separate login) and
 refreshed on 401.
@@ -192,30 +200,20 @@ Short aliases are also available for config commands: `limitping c i` for
 | `upgrade` | `up`, `update` |
 | `uninstall` | `rm`, `remove` |
 
-`ping` shows the exact command, a live timer (a spinner on a terminal), the
-**token usage** the ping consumed where available (parsed from `codex --json`),
-and a **USD cost** where available:
+`ping` shows the exact command and a live timer (a spinner on a terminal).
+Current Claude/Codex interactive trigger sessions do not expose reliable
+machine-readable per-ping token or cost data, so success output normally shows
+elapsed time only:
 
 ```
 claude  → claude --model haiku .
 claude  ✓ pinged (6.6s)
-codex   → codex exec --skip-git-repo-check --json -c model_reasoning_effort=low -m gpt-5.4-mini ok
-codex   ✓ pinged (13.6s, 16,862 tok (in 16,814 / out 48), $0.0098)
+codex   → codex -c model_reasoning_effort=low -m gpt-5.4-mini ok
+codex   ✓ pinged (13.6s)
 ```
 
-Cost sources:
-- **Claude** interactive mode does not expose per-invocation machine-readable
-  usage/cost, so no token/cost suffix is shown.
-- **Codex** (subscription) doesn't return a USD cost, so — like CodexBar/ccusage
-  — we derive the equivalent API-rate cost from the
-  [LiteLLM pricing dataset](https://github.com/BerriAI/litellm/blob/main/model_prices_and_context_window.json)
-  (`cost = non-cached-input × input + cached-input × cache-read + output × output`).
-  The dataset is cached at `~/.config/limitping/litellm_prices.json` (24h TTL),
-  with model-alias/date-suffix fallbacks. Requires `[codex].model` to be set so
-  the rate can be looked up.
-
-Claude triggering still consumes a small amount of Claude subscription quota,
-but the interactive CLI does not expose the exact per-ping token count.
+Use `status` or `bg status` for the authoritative 5h/weekly window view after a
+ping.
 
 Example `status`:
 
@@ -250,7 +248,7 @@ enabled          = true
 prompt           = "ok"
 model            = "gpt-5.4-mini"  # cheapest Codex model for triggering
 reasoning_effort = "low"  # "minimal" is rejected when web_search/image_gen tools are enabled
-extra_args       = []
+extra_args       = []     # extra Codex CLI args; exec-only flags such as --json are ignored
 align_start      = ""
 ```
 
@@ -372,7 +370,7 @@ internal/usage           normalized usage model
 internal/auth            Claude (Keychain) + Codex (auth.json) tokens
 internal/provider        per-provider ReadUsage (endpoint) + Trigger (CLI)
 internal/activity        hook-based active-session state (shared by the hook cmd + scheduler)
-internal/pricing         LiteLLM-based USD cost lookup (Codex)
+internal/pricing         pricing helpers for providers that expose token usage
 internal/scheduler       the watch engine (sleep-until-reset, weekly-respect, backoff)
 internal/notify          macOS osascript notifications
 internal/cli             cobra commands: status, ping, watch, background, config, hooks, upgrade, uninstall, version
