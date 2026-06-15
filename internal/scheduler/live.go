@@ -12,20 +12,32 @@ import (
 	"github.com/creack/pty"
 )
 
-// spinnerFrames is a braille spinner — the heartbeat that shows the watcher is
-// alive while it sleeps between pings.
-var spinnerFrames = []rune{'⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'}
+// heartbeatFrames is an ASCII ECG-style pulse that shows the watcher is alive
+// while it sleeps between pings. Keep every frame the same width so provider
+// text does not shift as the animation advances.
+var heartbeatFrames = []string{
+	"____/\\___",
+	"_____/\\__",
+	"______/\\_",
+	"_______/\\",
+	"_________",
+	"/\\_______",
+	"_/\\______",
+	"__/\\_____",
+	"___/\\____",
+}
 
 const (
-	liveTick  = 120 * time.Millisecond
-	ansiDim   = "\033[2m"
-	ansiCyan  = "\033[36m"
-	ansiReset = "\033[0m"
-	eraseLine = "\r\033[K" // carriage return + clear to end of line
+	heartbeatFrameWidth = 9
+	liveTick            = 250 * time.Millisecond
+	ansiDim             = "\033[2m"
+	ansiCyan            = "\033[36m"
+	ansiReset           = "\033[0m"
+	eraseLine           = "\r\033[K" // carriage return + clear to end of line
 )
 
 // liveStatus renders a single self-updating line at the bottom of the terminal:
-// a spinner plus each provider's current state and a live countdown to its next
+// a heartbeat plus each provider's current state and a live countdown to its next
 // action. Log lines written through it (it implements io.Writer for the
 // scheduler's logger) scroll above the status line, which redraws beneath them.
 //
@@ -86,7 +98,7 @@ func (l *liveStatus) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// run drives the spinner/countdown until ctx is cancelled, then clears the line.
+// run drives the heartbeat/countdown until ctx is cancelled, then clears the line.
 func (l *liveStatus) run(ctx context.Context) {
 	if !l.enabled {
 		return
@@ -135,7 +147,7 @@ func (l *liveStatus) drawLocked() {
 
 // renderLocked builds the plain (ANSI-free) status line. The caller must hold l.mu.
 func (l *liveStatus) renderLocked() string {
-	spin := string(spinnerFrames[l.frame%len(spinnerFrames)])
+	heartbeat := heartbeatFrames[l.frame%len(heartbeatFrames)]
 	parts := make([]string, 0, len(l.order))
 	for _, name := range l.order {
 		it, ok := l.items[name]
@@ -149,13 +161,13 @@ func (l *liveStatus) renderLocked() string {
 		parts = append(parts, s)
 	}
 	if len(parts) == 0 {
-		return spin + " watching…"
+		return heartbeat + " watching…"
 	}
-	return spin + " " + strings.Join(parts, "  ·  ")
+	return heartbeat + " " + strings.Join(parts, "  ·  ")
 }
 
-// colorize tints the spinner cyan and dims the rest, leaving the first rune (the
-// spinner) as the accent. A no-op when color is disabled.
+// colorize tints the ASCII heartbeat cyan and dims the rest. A no-op when color
+// is disabled.
 func (l *liveStatus) colorize(plain string) string {
 	if !l.color {
 		return plain
@@ -164,7 +176,11 @@ func (l *liveStatus) colorize(plain string) string {
 	if len(r) == 0 {
 		return plain
 	}
-	return ansiCyan + string(r[0]) + ansiReset + ansiDim + string(r[1:]) + ansiReset
+	accentRunes := heartbeatFrameWidth
+	if len(r) < accentRunes {
+		accentRunes = len(r)
+	}
+	return ansiCyan + string(r[:accentRunes]) + ansiReset + ansiDim + string(r[accentRunes:]) + ansiReset
 }
 
 // humanCountdown formats a duration compactly, dropping seconds when far out so

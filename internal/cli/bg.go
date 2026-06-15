@@ -17,8 +17,13 @@ import (
 	"github.com/wavever/CCLimitPing/internal/config"
 )
 
-// bgUsageTimeout bounds each per-provider usage read in `bg status`.
-const bgUsageTimeout = 30 * time.Second
+const (
+	// bgUsageTimeout bounds each per-provider usage read in `bg status`.
+	bgUsageTimeout = 30 * time.Second
+	// bgPingHistoryLimit keeps `bg status` readable even after a long-running
+	// watcher has accumulated many window starts.
+	bgPingHistoryLimit = 10
+)
 
 // The background command runs `watch` as a detached process so a 5h window chain
 // keeps going after the terminal closes. State lives next to the config:
@@ -42,6 +47,31 @@ type bgState struct {
 	DryRun    bool      `json:"dry_run"`
 	StartedAt time.Time `json:"started_at"`
 	LogPath   string    `json:"log_path"`
+}
+
+type bgPingStatus string
+
+const (
+	bgPingSucceeded bgPingStatus = "succeeded"
+	bgPingFailed    bgPingStatus = "failed"
+	bgPingDryRun    bgPingStatus = "dry-run"
+)
+
+type bgPingAttempt struct {
+	At       time.Time
+	Provider string
+	Status   bgPingStatus
+}
+
+type bgPingHistory struct {
+	Attempts  []bgPingAttempt
+	Succeeded int
+	Failed    int
+	DryRun    int
+}
+
+func (h bgPingHistory) total() int {
+	return h.Succeeded + h.Failed + h.DryRun
 }
 
 func newBackgroundCmd() *cobra.Command {
@@ -213,6 +243,7 @@ func runBgStatus(ctx context.Context, out io.Writer) error {
 	fmt.Fprintf(out, "  %s: %s\n", text.bgFieldUptime, time.Since(st.StartedAt).Round(time.Second))
 	fmt.Fprintf(out, "  %s: %s\n", text.bgFieldStarted, st.StartedAt.Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(out, "  %s: %s\n", text.bgFieldLogs, st.LogPath)
+	printBgPingHistory(out, text, st)
 
 	// Resolve the watched selection to the actual providers. On failure (e.g.
 	// nothing enabled in config now), fall back to the raw selection rather than
@@ -249,6 +280,150 @@ func runBgStatus(ctx context.Context, out io.Writer) error {
 
 	fmt.Fprintln(out, text.bgHintManage)
 	return nil
+}
+
+func printBgPingHistory(out io.Writer, text cliText, st bgState) {
+	fmt.Fprintf(out, "  %s: ", text.bgFieldPings)
+
+	logPath := st.LogPath
+	if logPath == "" {
+		var err error
+		logPath, err = bgLogPath()
+		if err != nil {
+			fmt.Fprintf(out, "error: %v\n", err)
+			return
+		}
+	}
+
+	history, err := readBgPingHistory(logPath, st.StartedAt)
+	if err != nil {
+		fmt.Fprintf(out, "error: %v\n", err)
+		return
+	}
+	if history.total() == 0 {
+		fmt.Fprintln(out, text.bgPingNone)
+		return
+	}
+
+	fmt.Fprintf(out, text.bgPingSummaryFmt, history.total(), history.Succeeded, history.Failed, history.DryRun)
+	attempts := history.Attempts
+	if len(attempts) > bgPingHistoryLimit {
+		fmt.Fprintf(out, "    "+text.bgPingShowingLastFmt+"\n", bgPingHistoryLimit)
+		attempts = attempts[len(attempts)-bgPingHistoryLimit:]
+	}
+	for _, attempt := range attempts {
+		fmt.Fprintf(out, "    %s  %-7s  %s\n",
+			attempt.At.Local().Format("2006-01-02 15:04:05"),
+			attempt.Provider,
+			localizedBgPingStatus(text, attempt.Status))
+	}
+}
+
+func readBgPingHistory(logPath string, since time.Time) (bgPingHistory, error) {
+	f, err := os.Open(logPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return bgPingHistory{}, nil
+		}
+		return bgPingHistory{}, err
+	}
+	defer f.Close()
+	return scanBgPingHistory(f, since)
+}
+
+func scanBgPingHistory(r io.Reader, since time.Time) (bgPingHistory, error) {
+	var history bgPingHistory
+	if !since.IsZero() {
+		since = since.Truncate(time.Second)
+	}
+	sc := bufio.NewScanner(r)
+	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for sc.Scan() {
+		attempt, ok := parseBgPingAttempt(sc.Text())
+		if !ok {
+			continue
+		}
+		if !since.IsZero() && attempt.At.Before(since) {
+			continue
+		}
+		history.Attempts = append(history.Attempts, attempt)
+		switch attempt.Status {
+		case bgPingSucceeded:
+			history.Succeeded++
+		case bgPingFailed:
+			history.Failed++
+		case bgPingDryRun:
+			history.DryRun++
+		}
+	}
+	if err := sc.Err(); err != nil {
+		return bgPingHistory{}, err
+	}
+	return history, nil
+}
+
+func parseBgPingAttempt(line string) (bgPingAttempt, bool) {
+	at, provider, msg, ok := parseBgLogLine(line)
+	if !ok {
+		return bgPingAttempt{}, false
+	}
+
+	var status bgPingStatus
+	switch {
+	case strings.Contains(msg, "DRY-RUN would ping now:"):
+		status = bgPingDryRun
+	case strings.Contains(msg, "dry-run ping failed:"):
+		status = bgPingFailed
+	case strings.Contains(msg, "ping failed:"):
+		status = bgPingFailed
+	case strings.Contains(msg, "ping sent, new window started"):
+		status = bgPingSucceeded
+	default:
+		return bgPingAttempt{}, false
+	}
+
+	return bgPingAttempt{
+		At:       at,
+		Provider: provider,
+		Status:   status,
+	}, true
+}
+
+func parseBgLogLine(line string) (time.Time, string, string, bool) {
+	if len(line) < len("2006/01/02 15:04:05 [x] ") {
+		return time.Time{}, "", "", false
+	}
+	at, err := time.ParseInLocation("2006/01/02 15:04:05", line[:19], time.Local)
+	if err != nil {
+		return time.Time{}, "", "", false
+	}
+	rest := strings.TrimSpace(line[19:])
+	if !strings.HasPrefix(rest, "[") {
+		return time.Time{}, "", "", false
+	}
+	end := strings.Index(rest, "]")
+	if end <= 1 {
+		return time.Time{}, "", "", false
+	}
+	provider := rest[1:end]
+	msg := strings.TrimSpace(rest[end+1:])
+	if msg == "" {
+		return time.Time{}, "", "", false
+	}
+	return at, provider, msg, true
+}
+
+func localizedBgPingStatus(text cliText, status bgPingStatus) string {
+	switch status {
+	case bgPingSucceeded:
+		return text.bgPingSucceeded
+	case bgPingFailed:
+		return text.bgPingFailed
+	case bgPingDryRun:
+		return text.bgPingDryRun
+	default:
+		return string(status)
+	}
 }
 
 // runBgStop terminates the background watcher gracefully.

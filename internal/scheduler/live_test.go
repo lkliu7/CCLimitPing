@@ -32,16 +32,32 @@ func TestTruncateRunes(t *testing.T) {
 		max  int
 		want string
 	}{
-		{"hello", 0, "hello"},   // max<=0 means no truncation
-		{"hello", 10, "hello"},  // shorter than max
-		{"hello", 5, "hello"},   // exactly max
-		{"hello", 4, "hel…"},    // truncated with ellipsis
-		{"hello", 1, "h"},       // no room for the ellipsis
-		{"⠋ claude", 4, "⠋ c…"}, // counts runes, not bytes
+		{"hello", 0, "hello"},             // max<=0 means no truncation
+		{"hello", 10, "hello"},            // shorter than max
+		{"hello", 5, "hello"},             // exactly max
+		{"hello", 4, "hel…"},              // truncated with ellipsis
+		{"hello", 1, "h"},                 // no room for the ellipsis
+		{"pulse · claude", 8, "pulse ·…"}, // counts runes, not bytes
 	}
 	for _, c := range cases {
 		if got := truncateRunes(c.in, c.max); got != c.want {
 			t.Errorf("truncateRunes(%q, %d) = %q, want %q", c.in, c.max, got, c.want)
+		}
+	}
+}
+
+func TestHeartbeatFramesAreFixedWidthASCII(t *testing.T) {
+	if len(heartbeatFrames) == 0 {
+		t.Fatal("heartbeatFrames must not be empty")
+	}
+	for _, frame := range heartbeatFrames {
+		if got := len([]rune(frame)); got != heartbeatFrameWidth {
+			t.Fatalf("heartbeat frame %q width = %d, want %d", frame, got, heartbeatFrameWidth)
+		}
+		for _, r := range frame {
+			if r > 127 {
+				t.Fatalf("heartbeat frame %q contains non-ASCII rune %q", frame, r)
+			}
 		}
 	}
 }
@@ -91,7 +107,7 @@ func TestLiveStatusRender(t *testing.T) {
 	if !strings.HasPrefix(got, eraseLine) {
 		t.Errorf("drawn line should start by erasing the line, got %q", got)
 	}
-	want := "⠋ claude: 5h window 12%  ·  codex: checking usage…"
+	want := "____/\\___ claude: 5h window 12%  ·  codex: checking usage…"
 	if !strings.Contains(got, want) {
 		t.Errorf("drawn line = %q, want it to contain %q", got, want)
 	}

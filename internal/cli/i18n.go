@@ -47,21 +47,28 @@ type cliText struct {
 	bgLogsLinesFlag  string
 
 	// bg runtime (stdout) strings.
-	bgHintStart       string
-	bgHintManage      string
-	bgNotRunning      string
-	bgClearedStaleFmt string
-	bgRunningFmt      string
-	bgFieldWatching   string
-	bgFieldUptime     string
-	bgFieldStarted    string
-	bgFieldLogs       string
-	bgStartedFmt      string
-	bgLogPathFmt      string
-	bgStartFollowUp   string
-	bgStopWasStaleFmt string
-	bgStoppedFmt      string
-	bgNoLogYetFmt     string
+	bgHintStart          string
+	bgHintManage         string
+	bgNotRunning         string
+	bgClearedStaleFmt    string
+	bgRunningFmt         string
+	bgFieldWatching      string
+	bgFieldUptime        string
+	bgFieldStarted       string
+	bgFieldLogs          string
+	bgFieldPings         string
+	bgPingNone           string
+	bgPingSummaryFmt     string
+	bgPingShowingLastFmt string
+	bgPingSucceeded      string
+	bgPingFailed         string
+	bgPingDryRun         string
+	bgStartedFmt         string
+	bgLogPathFmt         string
+	bgStartFollowUp      string
+	bgStopWasStaleFmt    string
+	bgStoppedFmt         string
+	bgNoLogYetFmt        string
 
 	configShort     string
 	configInitShort string
@@ -216,21 +223,28 @@ Examples:
 	bgLogsFollowFlag: "follow the log output (like tail -f)",
 	bgLogsLinesFlag:  "number of trailing log lines to show",
 
-	bgHintStart:       "Start it with: limitping bg start [claude|codex] [--dry-run]",
-	bgHintManage:      "Manage it with: limitping bg logs -f  |  limitping bg stop",
-	bgNotRunning:      "Background watch: not running.",
-	bgClearedStaleFmt: "Background watch: not running (cleared stale pid %d).\n",
-	bgRunningFmt:      "Background watch: running (pid %d).\n",
-	bgFieldWatching:   "watching",
-	bgFieldUptime:     "uptime",
-	bgFieldStarted:    "started",
-	bgFieldLogs:       "logs",
-	bgStartedFmt:      "Started background watch (pid %d, provider %s%s).\n",
-	bgLogPathFmt:      "Logs: %s\n",
-	bgStartFollowUp:   "Check status with `limitping bg status`; stop with `limitping bg stop`.",
-	bgStopWasStaleFmt: "Background watch was not running (cleared stale pid %d).\n",
-	bgStoppedFmt:      "Stopped background watch (pid %d).\n",
-	bgNoLogYetFmt:     "No log file yet at %s\n",
+	bgHintStart:          "Start it with: limitping bg start [claude|codex] [--dry-run]",
+	bgHintManage:         "Manage it with: limitping bg logs -f  |  limitping bg stop",
+	bgNotRunning:         "Background watch: not running.",
+	bgClearedStaleFmt:    "Background watch: not running (cleared stale pid %d).\n",
+	bgRunningFmt:         "Background watch: running (pid %d).\n",
+	bgFieldWatching:      "watching",
+	bgFieldUptime:        "uptime",
+	bgFieldStarted:       "started",
+	bgFieldLogs:          "logs",
+	bgFieldPings:         "ping history",
+	bgPingNone:           "none recorded since this watcher started",
+	bgPingSummaryFmt:     "%d total (%d succeeded, %d failed, %d dry-run)\n",
+	bgPingShowingLastFmt: "showing last %d",
+	bgPingSucceeded:      "succeeded",
+	bgPingFailed:         "failed",
+	bgPingDryRun:         "dry-run",
+	bgStartedFmt:         "Started background watch (pid %d, provider %s%s).\n",
+	bgLogPathFmt:         "Logs: %s\n",
+	bgStartFollowUp:      "Check status with `limitping bg status`; stop with `limitping bg stop`.",
+	bgStopWasStaleFmt:    "Background watch was not running (cleared stale pid %d).\n",
+	bgStoppedFmt:         "Stopped background watch (pid %d).\n",
+	bgNoLogYetFmt:        "No log file yet at %s\n",
 
 	configShort:     "Manage the configuration file",
 	configInitShort: "Write a default config file",
@@ -379,21 +393,28 @@ var zhText = cliText{
 	bgLogsFollowFlag: "持续跟踪日志输出（类似 tail -f）",
 	bgLogsLinesFlag:  "显示最后多少行日志",
 
-	bgHintStart:       "启动: limitping bg start [claude|codex] [--dry-run]",
-	bgHintManage:      "管理: limitping bg logs -f  |  limitping bg stop",
-	bgNotRunning:      "后台监听：未在运行。",
-	bgClearedStaleFmt: "后台监听：未在运行（已清理失效的 pid %d）。\n",
-	bgRunningFmt:      "后台监听：正在运行（pid %d）。\n",
-	bgFieldWatching:   "监测",
-	bgFieldUptime:     "运行时长",
-	bgFieldStarted:    "启动于",
-	bgFieldLogs:       "日志",
-	bgStartedFmt:      "已在后台启动监听（pid %d，Provider %s%s）。\n",
-	bgLogPathFmt:      "日志：%s\n",
-	bgStartFollowUp:   "用 `limitping bg status` 查看状态，用 `limitping bg stop` 停止。",
-	bgStopWasStaleFmt: "后台监听原本未在运行（已清理失效的 pid %d）。\n",
-	bgStoppedFmt:      "已停止后台监听（pid %d）。\n",
-	bgNoLogYetFmt:     "暂无日志文件：%s\n",
+	bgHintStart:          "启动: limitping bg start [claude|codex] [--dry-run]",
+	bgHintManage:         "管理: limitping bg logs -f  |  limitping bg stop",
+	bgNotRunning:         "后台监听：未在运行。",
+	bgClearedStaleFmt:    "后台监听：未在运行（已清理失效的 pid %d）。\n",
+	bgRunningFmt:         "后台监听：正在运行（pid %d）。\n",
+	bgFieldWatching:      "监测",
+	bgFieldUptime:        "运行时长",
+	bgFieldStarted:       "启动于",
+	bgFieldLogs:          "日志",
+	bgFieldPings:         "ping 记录",
+	bgPingNone:           "本次后台监听启动后暂无记录",
+	bgPingSummaryFmt:     "共 %d 次（成功 %d，失败 %d，dry-run %d）\n",
+	bgPingShowingLastFmt: "显示最近 %d 条",
+	bgPingSucceeded:      "成功",
+	bgPingFailed:         "失败",
+	bgPingDryRun:         "dry-run",
+	bgStartedFmt:         "已在后台启动监听（pid %d，Provider %s%s）。\n",
+	bgLogPathFmt:         "日志：%s\n",
+	bgStartFollowUp:      "用 `limitping bg status` 查看状态，用 `limitping bg stop` 停止。",
+	bgStopWasStaleFmt:    "后台监听原本未在运行（已清理失效的 pid %d）。\n",
+	bgStoppedFmt:         "已停止后台监听（pid %d）。\n",
+	bgNoLogYetFmt:        "暂无日志文件：%s\n",
 
 	configShort:     "管理配置文件",
 	configInitShort: "写入默认配置文件",
