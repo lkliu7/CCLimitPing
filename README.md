@@ -161,6 +161,7 @@ logged in.
 ```sh
 limitping config init          # write ~/.config/limitping/config.toml
 limitping status               # show 5h/weekly % + reset countdowns (alias: s)
+limitping status --json        # machine-readable JSON for each provider
 limitping status -v            # also print raw JSON
 limitping ping                 # trigger all enabled providers now (alias: p)
 limitping ping claude          # Claude only
@@ -226,6 +227,38 @@ claude
 codex (plus)
   5h     [██░░░░░░░░]  24.0%  resets in 3h15m    (Sun 00:11)
   weekly [████░░░░░░]  37.0%  resets in 111h57m  (Thu 12:53)
+```
+
+`status --json` returns the same data as a JSON array (one object per provider),
+for scripts and dashboards. Progress chatter is suppressed so stdout stays a
+single valid document; a provider that fails to read becomes
+`{"provider": "...", "error": "..."}` and the command exits non-zero. Add `-v`
+to embed each provider's raw response under `raw`.
+
+```json
+[
+  {
+    "provider": "codex",
+    "plan": "plus",
+    "five_hour": {
+      "used_percent": 24,
+      "active": true,
+      "resets_at": "2026-06-17T05:51:45+08:00",
+      "remaining_seconds": 11700,
+      "window_seconds": 18000
+    },
+    "weekly": {
+      "used_percent": 37,
+      "active": true,
+      "resets_at": "2026-06-24T00:51:45+08:00",
+      "remaining_seconds": 403020,
+      "window_seconds": 604800
+    },
+    "credits": { "has_credits": false, "unlimited": false, "balance": "0" },
+    "limit_reached": false,
+    "fetched_at": "2026-06-17T01:00:43+08:00"
+  }
+]
 ```
 
 ## Configuration

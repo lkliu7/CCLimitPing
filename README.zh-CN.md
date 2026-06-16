@@ -145,6 +145,7 @@ go build -o bin/limitping ./cmd/limitping
 ```sh
 limitping config init          # 生成 ~/.config/limitping/config.toml
 limitping status               # 查看 5h/周 用量百分比 + 重置倒计时(简称: s)
+limitping status --json        # 以 JSON 输出每个 Provider 的用量(便于脚本处理)
 limitping status -v            # 额外打印原始 JSON
 limitping ping                 # 立即触发所有已启用的 Provider(简称: p)
 limitping ping claude          # 只触发 Claude
@@ -207,6 +208,37 @@ claude
 codex (plus)
   5h     [██░░░░░░░░]  24.0%  resets in 3h15m    (Sun 00:11)
   weekly [████░░░░░░]  37.0%  resets in 111h57m  (Thu 12:53)
+```
+
+`status --json` 以 JSON 数组返回相同数据(每个 Provider 一个对象),便于脚本和
+看板消费。进度提示会被抑制,以保证 stdout 是单个合法 JSON;读取失败的 Provider
+会变成 `{"provider": "...", "error": "..."}`,且命令以非零码退出。加上 `-v` 可在
+`raw` 字段内嵌入各 Provider 的原始响应。
+
+```json
+[
+  {
+    "provider": "codex",
+    "plan": "plus",
+    "five_hour": {
+      "used_percent": 24,
+      "active": true,
+      "resets_at": "2026-06-17T05:51:45+08:00",
+      "remaining_seconds": 11700,
+      "window_seconds": 18000
+    },
+    "weekly": {
+      "used_percent": 37,
+      "active": true,
+      "resets_at": "2026-06-24T00:51:45+08:00",
+      "remaining_seconds": 403020,
+      "window_seconds": 604800
+    },
+    "credits": { "has_credits": false, "unlimited": false, "balance": "0" },
+    "limit_reached": false,
+    "fetched_at": "2026-06-17T01:00:43+08:00"
+  }
+]
 ```
 
 ## 配置

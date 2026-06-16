@@ -5,6 +5,14 @@ All notable changes to this project should be documented here.
 This project uses version tags such as `v0.2.0`. Release binaries are published
 through GitHub Actions and GoReleaser.
 
+## v0.5.0
+
+- Added `status --json`, which emits each provider's 5h/weekly usage, plan,
+  credits, and reset timing as a JSON array for scripts and dashboards. Progress
+  output is suppressed so stdout stays a single valid document, a provider that
+  fails to read becomes `{"provider": ..., "error": ...}`, and `-v` embeds the
+  raw response under `raw`.
+
 ## v0.4.2
 
 - Fixed Codex pings to use the interactive, TTY-backed Codex CLI instead of
